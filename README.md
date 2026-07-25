@@ -2,6 +2,46 @@
 **Author:** Mahdi Fattahi (`Borino88`) — Senior Full-Stack & Backend Engineer  
 **Live Studio & Systems Atlas:** [https://fattahi.xyz](https://fattahi.xyz)
 
+[![CI & Docker Publish](https://github.com/Borino88/enterprise-integration-hub/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Borino88/enterprise-integration-hub/actions/workflows/docker-publish.yml)
+[![Docker Pulls](https://img.shields.io/badge/Docker%20Hub-borino88%2Fenterprise--integration--hub-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://app.docker.com/repository/docker/borino88/enterprise-integration-hub)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
+
+---
+
+## 🐳 Docker Container Quick-Start
+
+The integration hub is packaged as a hardened, multi-stage Docker container executing strictly under an unprivileged non-root user (`appuser`, UID `1000`) and compiled for multi-architecture deployments (`linux/amd64`, `linux/arm64`).
+
+### 1. Docker Pull Command
+```bash
+docker pull borino88/enterprise-integration-hub:latest
+```
+
+### 2. Supported Tags & Architectures
+* **Tags:** `1.0.0`, `1.0`, `1`, `latest`, `main`
+* **Architectures:** `linux/amd64`, `linux/arm64`
+* **Docker Hub Repository:** [borino88/enterprise-integration-hub](https://app.docker.com/repository/docker/borino88/enterprise-integration-hub)
+
+### 3. Docker Compose Instructions
+Launch the integration hub alongside PostgreSQL and Redis in an isolated multi-container stack:
+```yaml
+version: '3.8'
+services:
+  hub:
+    image: borino88/enterprise-integration-hub:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - WEBHOOK_SECRET=demo_secret_key_12345
+    user: "1000:1000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+```
+
 ---
 
 ## 🚀 Overview

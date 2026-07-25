@@ -1,0 +1,114 @@
+name: CI & Docker Multi-Arch Publish
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*.*.*", "1.*", "latest" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-scan:
+    name: Test & Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies & run unit tests
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest httpx
+          pytest -v tests/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local container image for smoke test & scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: test-hub:local
+          cache-from: type=gha
+
+      - name: Run container smoke test
+        run: |
+          docker run -d --name hub-smoke -p 8000:8000 test-hub:local
+          sleep 5
+          curl -f http://localhost:8000/health || (docker logs hub-smoke && exit 1)
+          docker rm -f hub-smoke
+
+      - name: Run Trivy vulnerability & secret scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'test-hub:local'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          scanners: 'vuln,secret'
+
+  publish:
+    name: Multi-Arch Build & Publish
+    needs: test-and-scan
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: borino88/enterprise-integration-hub
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=main,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+
+      - name: Build and push multi-architecture image
+        id: build-and-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Verify image pull & digest
+        run: |
+          echo "Image Digest: ${{ steps.build-and-push.outputs.digest }}"
+          docker pull borino88/enterprise-integration-hub:latest
